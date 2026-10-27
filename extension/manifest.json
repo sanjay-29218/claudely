@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "Claudely",
+  "version": "0.2.0",
+  "description": "A writing assistant that checks and rewrites what you type with your local Claude Code, Codex, or OpenCode accounts.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwzgiZHJfZyfHinCi1PcF+Uov2Qg8ZFmH+biV0r+JgFH71IRXiARu3xdea6BHvlGoPjOvjFHupjB5/GpHuUcULdfHDX8R8Xc7XcLUlDzPFdYB1DcO+sFrP21SWHkRvBxrlkOpmhg+NO4DyrHoyS2FOd+Px9SbGfXZdy2bCUWbS/n2ypE0jxwqYfGo1Rlsmoh4I6wLuVFXjRK4vD07JEs+f17AvixFOuO3XqvkhAppqXrKHhy12exN6QM/eHXhqr+uzBwHtnhPb1lzhBme975NdWIUbjoEV1X6nZW+cxa7juM1Vfp/vHQCyNcaV2vUMYn/aYFqlPJDY8npWuLRjU1m4QIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "nativeMessaging",
+    "storage",
+    "contextMenus",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "defaults.js",
+        "content.js"
+      ],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Claudely",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "commands": {
+    "quick-fix": {
+      "suggested_key": {
+        "default": "Alt+Shift+G"
+      },
+      "description": "Fix spelling & grammar in the selection (or whole field)"
+    },
+    "open-panel": {
+      "suggested_key": {
+        "default": "Alt+Shift+W"
+      },
+      "description": "Open the Claudely panel for the focused field"
+    },
+    "check-now": {
+      "description": "Check the focused field now"
+    }
+  }
+}

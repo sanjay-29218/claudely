@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Claudely settings</title>
+  <link rel="stylesheet" href="ui.css">
+  <style>
+    body { background: var(--soft); }
+    main { max-width: 680px; margin: 0 auto; padding: 36px 20px 80px; }
+    h1 { margin: 0 0 4px; }
+    .lead { margin: 0 0 24px; }
+    .card { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 6px 20px; margin-bottom: 18px; }
+    .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 4px; }
+    .field { display: grid; grid-template-columns: 1fr 260px; gap: 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+    .card h2 + .field { border-top: 0; }
+    .field.stack { grid-template-columns: 1fr; gap: 8px; }
+    .field .hint { font-size: 12px; color: var(--muted); }
+    .field .right { justify-self: end; }
+    .two { display: grid; grid-template-columns: 1fr 110px; gap: 8px; }
+    textarea { min-height: 76px; resize: vertical; }
+    .actions { display: flex; gap: 8px; }
+    .account p:empty, #testResult:empty { display: none; }
+    .hint { font-size: 12px; }
+    .efforts { display: grid; grid-template-columns: 1fr 110px; gap: 8px; align-items: center; }
+    @media (max-width: 580px) { .field { grid-template-columns: 1fr; gap: 8px; } .field .right { justify-self: start; } main { padding: 24px 16px 60px; } }
+    #testResult { margin-top: 10px; white-space: pre-wrap; }
+    .saved { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 6px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+    .saved.show { opacity: 1; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { background: var(--soft); border-radius: 99px; padding: 2px 4px 2px 10px; display: inline-flex; align-items: center; gap: 4px; }
+    .chip button { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 15px; line-height: 1; padding: 0 4px; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="brand" style="font-size:22px"><img src="icons/icon48.png" alt="" style="width:30px;height:30px"><h1>Claudely</h1></div>
+  <p class="lead muted">Your writing assistant, running on your local Claude Code, Codex, or OpenCode account.</p>
+
+  <div class="card">
+    <h2>Provider &amp; models</h2>
+    <div class="field">
+      <div><label for="provider">Provider</label><div class="hint">Use an account connected on this computer.</div></div>
+      <select id="provider"><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="opencode">OpenCode</option></select>
+    </div>
+    <div class="field">
+      <label for="connection">Account connection</label>
+      <select id="connection"></select>
+    </div>
+    <div class="field stack account">
+      <div class="status" role="status"><span class="led" id="led"></span><span id="accountStatus">Checking local connection…</span></div>
+      <div class="actions"><button class="btn" id="login">Sign in</button><button class="btn" id="refreshConnection">Refresh</button></div>
+      <p class="hint muted" id="accountMessage" role="status"></p>
+    </div>
+    <div class="field">
+      <div><label for="checkModel">Checking model</label><div class="hint">A fast model works best as you type.</div></div>
+      <div class="model-control"><select id="checkModel"></select><input type="text" id="checkCustomModel" aria-label="Custom checking model" placeholder="Model ID" hidden></div>
+    </div>
+    <div class="field">
+      <div><label for="rewriteModel">Rewriting model</label><div class="hint">Used for Improve and other rewrites.</div></div>
+      <div class="model-control"><select id="rewriteModel"></select><input type="text" id="rewriteCustomModel" aria-label="Custom rewriting model" placeholder="Model ID" hidden></div>
+    </div>
+    <p class="hint muted" id="modelMessage" role="status"></p>
+    <div class="field" data-provider="codex">
+      <div>Reasoning effort<div class="hint">Higher effort can take longer.</div></div>
+      <div class="efforts"><label for="codexCheckEffort" class="hint">Checking</label><select id="codexCheckEffort"></select><label for="codexRewriteEffort" class="hint">Rewriting</label><select id="codexRewriteEffort"></select></div>
+    </div>
+    <div class="field"><div><div>Try your selected connection</div><div class="hint">Fix a sample sentence with the checking model.</div></div><button class="btn right" id="test">Test connection</button></div>
+    <p id="testResult" class="hint muted" role="status"></p>
+  </div>
+
+  <div class="card">
+    <h2>Checking</h2>
+    <div class="field">
+      <div><div>Check while I type</div><div class="hint">Off: only check when you press “Check now” in the panel.</div></div>
+      <label class="switch right"><input type="checkbox" id="autoCheck"><span></span></label>
+    </div>
+    <div class="field">
+      <div><div>Pause before checking</div><div class="hint">How long to wait after you stop typing, in milliseconds.</div></div>
+      <input type="number" id="delayMs" min="300" max="10000" step="100">
+    </div>
+    <div class="field">
+      <div><div>Clarity &amp; style suggestions</div><div class="hint">Blue underlines for wordy or awkward phrasing. Off means correctness only.</div></div>
+      <label class="switch right"><input type="checkbox" id="clarity"><span></span></label>
+    </div>
+    <div class="field">
+      <div><div>Single-line inputs</div><div class="hint">Also check one-line text boxes (subject lines, titles). Search boxes stay ignored when off.</div></div>
+      <label class="switch right"><input type="checkbox" id="checkInputs"><span></span></label>
+    </div>
+    <div class="field">
+      <div><div>English variant</div></div>
+      <select id="dialect">
+        <option>American English</option>
+        <option>British English</option>
+        <option>Canadian English</option>
+        <option>Australian English</option>
+        <option>Indian English</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Your voice</h2>
+    <div class="field stack">
+      <div><div>Style notes for rewrites</div><div class="hint">E.g. “I write short, direct sentences. No exclamation marks. Avoid corporate jargon.”</div></div>
+      <textarea id="styleNotes"></textarea>
+    </div>
+    <div class="field stack">
+      <div><div>Personal dictionary</div><div class="hint">Words Claudely will never flag. Add more from any spelling suggestion.</div></div>
+      <div class="chips" id="dictionary"></div>
+      <div class="two"><input type="text" id="newWord" placeholder="Add a word"><button class="btn" id="addWord">Add</button></div>
+    </div>
+    <div class="field stack">
+      <div><div>Disabled sites</div><div class="hint">Claudely stays off on these domains (and their subdomains).</div></div>
+      <div class="chips" id="sites"></div>
+      <div class="two"><input type="text" id="newSite" placeholder="example.com"><button class="btn" id="addSite">Add</button></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Shortcuts</h2>
+    <div class="field"><div>Quick-fix selection or field in place</div><code class="right">Alt+Shift+G</code></div>
+    <div class="field"><div>Open the Claudely panel</div><code class="right">Alt+Shift+W</code></div>
+    <div class="field"><div>Change shortcuts</div><button class="btn right" id="shortcuts">Open shortcut settings</button></div>
+  </div>
+</main>
+<div class="saved" id="saved">Saved</div>
+<script src="defaults.js"></script>
+<script src="provider-ui.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

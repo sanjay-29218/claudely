@@ -1,0 +1,22 @@
+{
+  "name": "claudely",
+  "version": "0.2.0",
+  "private": true,
+  "description": "A browser writing assistant powered by your local Claude Code, Codex, or OpenCode accounts.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "node tools/check.mjs",
+    "test": "node --test tools/provider-tests.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sanjay-29218/claudely.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sanjay-29218/claudely/issues"
+  },
+  "homepage": "https://github.com/sanjay-29218/claudely#readme"
+}

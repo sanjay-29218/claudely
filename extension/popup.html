@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="ui.css">
+  <style>
+    body { width: 340px; }
+    .field { padding: 5px 0; }
+    .field label { display: block; margin-bottom: 3px; }
+    .field .hint { display: none; }
+    .hint { font-size: 12px; }
+    .actions { display: flex; gap: 6px; margin-top: 8px; }
+    .account { padding: 10px 0; }
+    #accountMessage:empty { display: none; }
+    #modelMessage { margin: 4px 0; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; }
+    section { padding: 10px 16px; border-top: 1px solid var(--line); }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
+    .row label:not(.switch) { flex: 1; }
+    .site { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; display: inline-block; vertical-align: bottom; }
+    #setup { display: none; margin-top: 8px; }
+    #setup code { display: block; margin-top: 4px; padding: 6px 8px; user-select: all; }
+    footer { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px 14px; border-top: 1px solid var(--line); }
+    a { color: var(--accent); text-decoration: none; cursor: pointer; }
+    .stats { font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand"><img src="icons/icon32.png" alt="">Claudely</div>
+    <label class="switch" title="Enable Claudely everywhere"><input type="checkbox" id="enabled"><span></span></label>
+  </header>
+  <section class="provider-controls">
+    <div class="field">
+      <div><label for="provider">Provider</label><div class="hint">Use an account connected on this computer.</div></div>
+      <select id="provider"><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="opencode">OpenCode</option></select>
+    </div>
+    <div class="field">
+      <label for="connection">Account connection</label>
+      <select id="connection"></select>
+    </div>
+    <div class="field stack account">
+      <div class="status" role="status"><span class="led" id="led"></span><span id="accountStatus">Checking local connection…</span></div>
+      <div class="actions"><button class="btn" id="login">Sign in</button><button class="btn" id="refreshConnection">Refresh</button></div>
+      <p class="hint muted" id="accountMessage" role="status"></p>
+    </div>
+    <div class="field">
+      <div><label for="checkModel">Checking model</label><div class="hint">A fast model works best as you type.</div></div>
+      <div class="model-control"><select id="checkModel"></select><input type="text" id="checkCustomModel" aria-label="Custom checking model" placeholder="Model ID" hidden></div>
+    </div>
+    <div class="field">
+      <div><label for="rewriteModel">Rewriting model</label><div class="hint">Used for Improve and other rewrites.</div></div>
+      <div class="model-control"><select id="rewriteModel"></select><input type="text" id="rewriteCustomModel" aria-label="Custom rewriting model" placeholder="Model ID" hidden></div>
+    </div>
+    <p class="hint muted" id="modelMessage" role="status"></p>
+  </section>
+  <section>
+    <div class="row"><label for="site">On <span class="site" id="siteName">this site</span></label>
+      <label class="switch"><input type="checkbox" id="site"><span></span></label>
+    </div>
+    <div class="row"><label for="autoCheck">Check while I type</label>
+      <label class="switch"><input type="checkbox" id="autoCheck"><span></span></label>
+    </div>
+  </section>
+  <footer>
+    <span class="muted stats" id="stats"></span>
+    <button class="btn" id="options">Settings</button>
+  </footer>
+  <script src="defaults.js"></script>
+  <script src="provider-ui.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

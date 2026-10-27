@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Claudely playground</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px; color: #222; }
+    textarea, [contenteditable] { width: 100%; border: 1px solid #ccc; border-radius: 8px; padding: 12px; font: inherit; box-sizing: border-box; }
+    textarea { height: 150px; }
+    [contenteditable] { min-height: 120px; outline: none; }
+    h2 { font-size: 14px; color: #666; margin: 28px 0 8px; }
+    .scroller { height: 110px; overflow: auto; border: 1px dashed #bbb; border-radius: 8px; }
+    .scroller [contenteditable] { border: 0; }
+  </style>
+</head>
+<body>
+  <h1>Claudely playground</h1>
+  <h2>Textarea</h2>
+  <textarea id="ta">i has went to the store yesterday and buyed some apple. Their going to be really happy when they sees them.
+
+This paragraph is perfectly fine and has no mistakes in it.</textarea>
+
+  <h2>Contenteditable (rich)</h2>
+  <div id="ce" contenteditable="true"><p>Me and him <b>was</b> planning to meet at the libary, but it begun raining alot.</p><p>We should of left earlier, its to late now.</p></div>
+
+  <h2>Single-line input (ignored unless enabled)</h2>
+  <input id="in" type="text" value="this sentense has a eror" style="width:100%;padding:8px;font:inherit;box-sizing:border-box">
+
+  <h2>Contenteditable inside a scroll container</h2>
+  <div class="scroller"><div id="ce2" contenteditable="true">Line one is ok.<br>Line two have a error.<br>Line three is fine too.<br>Line four dont have nothing wrong.<br>Line five is also definately fine.<br>Line six recieve the package tomorow.</div></div>
+
+  <h2>Controlled textarea (simulates React)</h2>
+  <textarea id="controlled"></textarea>
+  <div id="mirrorOut" style="color:#888;font-size:13px">state: </div>
+  <script>
+    // Mimics a framework-controlled input: state is only updated from input events.
+    const c = document.getElementById('controlled');
+    let state = 'Thank you for you help, I realy appreciate it.';
+    c.value = state;
+    c.addEventListener('input', () => { state = c.value; document.getElementById('mirrorOut').textContent = 'state: ' + state; });
+  </script>
+</body>
+</html>

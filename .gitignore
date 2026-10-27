@@ -1,0 +1,15 @@
+# Credentials and local configuration
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+auth.json
+keys.json
+
+# Generated files
+node_modules/
+coverage/
+dist/
+*.log
+.DS_Store
