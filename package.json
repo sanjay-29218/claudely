@@ -9,7 +9,8 @@
   },
   "scripts": {
     "check": "node tools/check.mjs",
-    "test": "node --test tools/provider-tests.mjs"
+    "test": "node --test tools/provider-tests.mjs",
+    "test:browser": "node tools/keyboard-tests.mjs"
   },
   "repository": {
     "type": "git",

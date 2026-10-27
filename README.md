@@ -23,6 +23,9 @@ Account credentials stay with the CLI; Claudely never stores them in the browser
 - **Right-click** in any text field → Claudely → any rewrite. Shortcuts and
   the menu work in any editable field, including ones Claudely doesn't check
   automatically (single-line inputs, `spellcheck="false"` textareas).
+- **Keyboard isolation:** typing or navigating inside Claudely's controls
+  stays inside Claudely, so page shortcuts such as X's `j`/`k` do not fire.
+  Escape closes the panel and returns focus to your writing field.
 
 ## Setup
 
