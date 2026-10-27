@@ -25,3 +25,18 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm run check
       - run: npm test
+
+  keyboard:
+    name: Keyboard isolation in Chrome
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Start Chrome
+        run: |
+          google-chrome --headless=new --no-sandbox --disable-gpu \
+            --remote-debugging-port=9333 --user-data-dir="$RUNNER_TEMP/claudely-keyboard" \
+            about:blank > "$RUNNER_TEMP/claudely-chrome.log" 2>&1 &
+      - run: npm run test:browser

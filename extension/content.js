@@ -2,6 +2,8 @@
 // paragraph by paragraph through the service worker, draws underlines, and
 // hosts the suggestion card, badge and rewrite panel in a shadow root.
 (() => {
+  // Our UI frames inherit the page origin, but are not page editors.
+  if (window.frameElement?.hasAttribute('data-claudely-ui')) return;
   // A copy injected before the extension was reloaded or updated may still be
   // running in this page (in its own isolated world, so only the DOM is
   // shared). Tell it to shut down before this copy starts listening.
@@ -823,11 +825,91 @@
     shadow.addEventListener('mousedown', (e) => {
       if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
     });
-    return { host, shadow, root, layer, mirror, badge, card: null, panel: null, toast: null };
+    return { host, shadow, root, layer, mirror, badge, card: null, panel: null, toast: null, surfaces: new Map() };
   })();
 
   function mountHost() {
     if (!ui.host.isConnected) document.documentElement.append(ui.host);
+    mountSurface(ui.badge, 'Claudely writing assistant', 4);
+  }
+
+  // Shadow DOM retargets keyboard events; it does not isolate them from page
+  // capture listeners. Separate browsing contexts keep trusted key, input,
+  // composition and clipboard events off the host page's event path entirely.
+  function mountSurface(element, title, gutter = 16) {
+    if (ui.surfaces.has(element)) return;
+    const frame = h('iframe', {
+      title, 'data-claudely-ui': '',
+      style: 'all:initial; position:fixed; border:0; margin:0; padding:0; background:transparent; color-scheme:normal; pointer-events:auto;',
+    });
+    ui.root.append(frame);
+    const doc = frame.contentDocument;
+    const style = doc.createElement('style');
+    style.textContent = `${STYLE}
+      html, body { margin:0; padding:0; background:transparent; overflow:hidden; }
+      .surface { padding:${gutter}px; }
+      .surface > .badge, .surface > .card, .surface > .panel {
+        position:relative; inset:auto !important; margin:0;
+      }
+      button:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    `;
+    const root = h('div', { class: 'ui surface', 'data-theme': ui.root.dataset.theme });
+    doc.head.append(style);
+    doc.body.append(root);
+    root.append(element);
+    doc.addEventListener('mousedown', (e) => {
+      // Keep the source selection when applying a suggestion with the mouse.
+      if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') e.preventDefault();
+    });
+    let escape = false;
+    doc.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229) return;
+      e.preventDefault();
+      escape = true;
+    });
+    doc.addEventListener('keyup', (e) => {
+      if (e.key !== 'Escape' || !escape) return;
+      escape = false;
+      // Remove the focused frame after keyup, so the release cannot land on
+      // the page and dismiss its dialogs or trigger another shortcut.
+      if (ui.card) hideCard();
+      else if (ui.panel) closePanel();
+    });
+    ui.surfaces.set(element, { frame, root, gutter });
+  }
+
+  function positionSurface(element) {
+    const surface = ui.surfaces.get(element);
+    if (!surface) return;
+    const { frame, root, gutter } = surface;
+    root.dataset.theme = ui.root.dataset.theme;
+    frame.style.display = element.style.display === 'none' ? 'none' : 'block';
+    if (element.style.display === 'none') return;
+    const width = element.offsetWidth;
+    const height = element.offsetHeight;
+    const top = element.style.top ? parseFloat(element.style.top)
+      : innerHeight - parseFloat(element.style.bottom || '0') - height;
+    Object.assign(frame.style, {
+      left: `${parseFloat(element.style.left || '0') - gutter}px`, top: `${top - gutter}px`,
+      width: `${width + gutter * 2}px`, height: `${height + gutter * 2}px`,
+    });
+  }
+
+  function surfaceRect(element) {
+    const rect = element.getBoundingClientRect();
+    const surface = ui.surfaces.get(element);
+    if (!surface) return rect;
+    const frame = surface.frame.getBoundingClientRect();
+    return new DOMRect(frame.left + rect.left, frame.top + rect.top, rect.width, rect.height);
+  }
+
+  function removeSurface(element) {
+    const surface = ui.surfaces.get(element);
+    const focused = surface && ui.shadow.activeElement === surface.frame;
+    surface?.frame.remove();
+    ui.surfaces.delete(element);
+    element?.remove();
+    if (focused) active?.el.focus({ preventScroll: true });
   }
 
   // Match the page rather than the OS: a dark card on a light editor (or the
@@ -893,6 +975,7 @@
     if (!s || !s.el.isConnected || !siteEnabled()) {
       ui.layer.replaceChildren();
       ui.badge.style.display = 'none';
+      positionSurface(ui.badge);
       hitboxes = [];
       if (s && !s.el.isConnected) deactivate();
       return;
@@ -947,6 +1030,7 @@
     const b = ui.badge;
     if (!visible) {
       b.style.display = 'none';
+      positionSurface(b);
       return;
     }
     const r = s.el.getBoundingClientRect();
@@ -981,6 +1065,7 @@
       b.innerHTML = LOGO;
       b.title = 'Claudely';
     }
+    positionSurface(b);
   }
 
   ui.badge.addEventListener('click', () => {
@@ -993,7 +1078,7 @@
     mountHost();
     // Next to the badge, or above the field's corner when there's no badge.
     const target = anchor || (ui.badge.offsetWidth ? ui.badge : active?.el);
-    const b = target?.getBoundingClientRect() || new DOMRect(innerWidth - 8, innerHeight - 8, 0, 0);
+    const b = target ? surfaceRect(target) : new DOMRect(innerWidth - 8, innerHeight - 8, 0, 0);
     const t = h('div', { class: 'toast' }, text);
     ui.root.append(t);
     const w = t.offsetWidth;
@@ -1039,15 +1124,18 @@
     card.issueKey = issue.key;
     card.addEventListener('mouseenter', () => clearTimeout(hideTimer));
     card.addEventListener('mouseleave', () => scheduleHideCard());
-    ui.root.append(card);
+    mountSurface(card, 'Claudely suggestion');
     ui.card = card;
 
-    const width = 300;
-    const left = Math.min(Math.max(8, rect.left), innerWidth - width - 8);
+    const viewportWidth = document.documentElement.clientWidth;
+    const width = Math.min(300, viewportWidth - 16);
+    card.style.width = `${width}px`;
+    const left = Math.min(Math.max(8, rect.left), viewportWidth - width - 8);
     const height = card.offsetHeight;
     const below = rect.bottom + 6;
     const top = below + height > innerHeight - 8 ? Math.max(8, rect.top - height - 6) : below;
     Object.assign(card.style, { left: `${left}px`, top: `${top}px` });
+    positionSurface(card);
     scheduleRender();
   }
 
@@ -1055,7 +1143,7 @@
     clearTimeout(hoverTimer);
     clearTimeout(hideTimer);
     if (!ui.card) return;
-    ui.card.remove();
+    removeSurface(ui.card);
     ui.card = null;
     scheduleRender();
   }
@@ -1144,14 +1232,14 @@
     panelState = { view: 'main', scope: captureScope(active), ...initial };
     if (!ui.panel) {
       ui.panel = h('div', { class: 'panel' });
-      ui.root.append(ui.panel);
+      mountSurface(ui.panel, 'Claudely writing panel');
     }
     renderPanel();
   }
 
   function closePanel() {
     if (panelState?.request) panelState.request.cancelled = true;
-    ui.panel?.remove();
+    removeSurface(ui.panel);
     ui.panel = null;
     panelState = null;
   }
@@ -1161,9 +1249,11 @@
     if (!p) return;
     const b = ui.badge.style.display === 'none' && active
       ? active.el.getBoundingClientRect()
-      : ui.badge.getBoundingClientRect();
-    const width = 372;
-    const left = Math.min(Math.max(8, b.right - width), innerWidth - width - 8);
+      : surfaceRect(ui.badge);
+    const viewportWidth = document.documentElement.clientWidth;
+    const width = Math.min(372, viewportWidth - 16);
+    p.style.width = `${width}px`;
+    const left = Math.min(Math.max(8, b.right - width), viewportWidth - width - 8);
     const above = b.top - 16;
     const below = innerHeight - b.bottom - 16;
     p.style.left = `${left}px`;
@@ -1176,6 +1266,7 @@
       p.style.top = `${b.bottom + 8}px`;
       p.style.maxHeight = `${Math.max(200, below)}px`;
     }
+    positionSurface(p);
   }
 
   function providerLabel() {
@@ -1296,9 +1387,10 @@
       if (instruction) runRewrite('custom', instruction, `“${instruction}”`);
     };
     input.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Enter') go();
-      if (e.key === 'Escape') closePanel();
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
+        e.preventDefault();
+        go();
+      }
     });
     return h('div', {},
       h('div', { class: 'section-title' }, h('span', {}, 'Rewrite')),

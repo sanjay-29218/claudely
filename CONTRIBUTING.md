@@ -29,6 +29,14 @@ The optional `tools/host-smoke.mjs` and `tools/editor-tests.mjs` checks use
 real model requests and your account quota; see the README before running them.
 Browser automation tools use Node 22's built-in WebSocket client.
 
+For keyboard isolation regressions, start Chrome with
+`--remote-debugging-port=9333` (or use `tools/test-browser.sh`), then run
+`npm run test:browser`. These tests open an isolated browser context, inject
+the actual content script with fixture model responses, and make no provider
+requests. They cover host-page capture listeners, normal typing and selection,
+IME confirmation, keyboard submission and dismissal, suggestion cards, and
+focus return at desktop and narrow widths, including a strict page CSP.
+
 ## Changes
 
 Keep pull requests focused, describe the behavior you changed, and include
