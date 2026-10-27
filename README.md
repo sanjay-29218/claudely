@@ -26,6 +26,16 @@ Account credentials stay with the CLI; Claudely never stores them in the browser
 - **Keyboard isolation:** typing or navigating inside Claudely's controls
   stays inside Claudely, so page shortcuts such as X's `j`/`k` do not fire.
   Escape closes the panel and returns focus to your writing field.
+- **Write from an idea:** open Claudely in an empty field, describe a post,
+  reply, email, or anything else, and choose **Write in text box** (or press
+  Cmd/Ctrl+Enter). It uses your selected provider and rewrite model and inserts
+  directly into the original field. In an existing draft, switch to **Write**
+  to insert at the cursor or replace just the selected text. **Undo** restores
+  that insertion while the field is unchanged; edits made during generation
+  are preserved. Enter adds a new line to your instruction. **Cancel writing**
+  leaves the field unchanged; if insertion fails, use **Copy generated text**.
+  **Rewrite** keeps its preview-and-replace flow, and **Check** contains spelling
+  and grammar suggestions.
 
 ## Setup
 
@@ -109,10 +119,12 @@ debounced and cached, so you only pay for paragraphs that changed.
 ## Privacy
 
 Claudely sends the text it checks or rewrites to your selected provider through
-its local CLI. The model provider's own data policies apply. Account credentials
-stay in the CLI's credential store or the local proxy configuration; they are
-not synced through the browser. Claudely preferences use browser sync storage,
-and the personal dictionary stays in local extension storage.
+its local CLI. Write mode sends your instruction, selected text, and up to 600
+characters of surrounding text on each side for context. The model provider's
+own data policies apply. Account credentials stay in the CLI's credential store
+or the local proxy configuration; they are not synced through the browser.
+Claudely preferences use browser sync storage, and the personal dictionary stays
+in local extension storage.
 
 No analytics or separate Claudely backend is included. The development signing
 private key is excluded from this repository; the public extension key is shared

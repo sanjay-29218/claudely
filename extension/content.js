@@ -204,11 +204,12 @@
       m.replaceChildren();
       return out;
     }
-    async replace(start, end, replacement) {
+    async replace(start, end, replacement, valid = () => true) {
       const el = this.el;
       const before = el.value;
       el.focus({ preventScroll: true });
       el.setSelectionRange(start, end);
+      if (!valid()) return false;
       let ok = false;
       try {
         ok = replacement ? document.execCommand('insertText', false, replacement) : document.execCommand('delete');
@@ -292,7 +293,7 @@
     }
     pointAt(offset, isEnd) {
       const { segs } = this.build();
-      if (!segs.length) return null;
+      if (!segs.length) return { node: this.root, offset: 0 };
       let lo = 0;
       let hi = segs.length - 1;
       let found = -1;
@@ -390,7 +391,7 @@
       const [a, b] = this.selection();
       return a === start && b === end;
     }
-    async replace(start, end, replacement) {
+    async replace(start, end, replacement, valid = () => true) {
       const before = this.text();
       const expected = normalizeQuotes(before.slice(0, start) + replacement + before.slice(end));
       // Chrome drops whitespace left dangling at a block or inline-element
@@ -412,6 +413,7 @@
         return normalizeQuotes(this.text()) === expected;
       };
       if (!(await this.selectSettled(start, end))) return false;
+      if (!valid()) return false;
       try {
         document.execCommand('insertText', false, replacement);
       } catch {}
@@ -421,6 +423,7 @@
 
       // Some editors ignore execCommand but accept a paste.
       if (!(await this.selectSettled(start, end))) return false;
+      if (!valid()) return false;
       const data = new DataTransfer();
       data.setData('text/plain', replacement);
       this.root.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
@@ -639,6 +642,24 @@
       this.storeParagraph(updated, remaining);
       return true;
     }
+
+    // New writing must land at the captured cursor in the exact original
+    // draft. Unlike proofreading, an empty insertion cannot be relocated.
+    async replaceSnapshot(before, start, end, replacement, valid) {
+      const canEdit = () => valid() && this.el.isConnected && !this.el.disabled && !this.el.readOnly
+        && (!(this.adapter instanceof RichAdapter) || this.el.isContentEditable)
+        && (!(this.adapter instanceof PlainAdapter) || this.el.maxLength < 0 || before.length - (end - start) + replacement.length <= this.el.maxLength)
+        && this.adapter.text() === before;
+      this.adapter.invalidate();
+      if (this.editing || !canEdit()) return false;
+      this.editing = true;
+      try {
+        return await this.adapter.replace(start, end, replacement, canEdit);
+      } finally {
+        this.editing = false;
+        this.adapter.invalidate();
+      }
+    }
   }
 
   function sessionFor(el) {
@@ -693,6 +714,7 @@
   function onContentChanged() {
     if (!active) return;
     active.adapter.invalidate();
+    rememberInsertion();
     active.cancelStale();
     hideCard();
     scheduleRender();
@@ -762,7 +784,23 @@
     .title { font-weight: 700; font-size: 14px; flex: 1; display: flex; align-items: center; gap: 7px; }
     .title svg { width: 16px; height: 16px; }
     .pill { font-size: 11px; color: var(--muted); background: var(--soft); border-radius: 99px; padding: 2px 8px; }
-    .body { overflow: auto; padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 14px; }
+    .body { overflow: auto; padding: 16px 14px; display: flex; flex-direction: column; gap: 14px; }
+    .tabs { display:flex; gap:22px; padding:0 14px; border-bottom:1px solid var(--line); }
+    .tab { padding:11px 0 9px; border-bottom:2px solid transparent; color:var(--muted); }
+    .tab[aria-selected="true"] { border-bottom-color:var(--accent); color:var(--fg); font-weight:650; }
+    .write-label { display:block; font-size:14px; font-weight:600; margin-bottom:10px; }
+    .write-prompt { display:block; resize:none; min-height:108px; max-height:240px; width:100%; padding:10px 11px;
+      font:inherit; line-height:1.6; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:8px; caret-color:var(--accent); }
+    .write-prompt::placeholder { color:var(--muted); opacity:1; }
+    .write-prompt:focus { outline:2px solid var(--accent); outline-offset:1px; }
+    .write-hint { color:var(--muted); font-size:11px; margin:8px 0 18px; }
+    .write-actions { display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+    .write-actions .btn { padding:8px 11px; }
+    .write-actions .primary { background:#e69376; color:#27170f; }
+    .write-actions .primary:hover { background:#f0a58a; color:#27170f; }
+    .write-placement { font-size:11px; color:var(--muted); }
+    .write-notice { display:flex; gap:10px; align-items:center; padding:10px; border-radius:7px; background:var(--soft); font-size:12px; }
+    .write-notice span { flex:1; }
     .section-title { display: flex; align-items: center; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
     .section-title span { flex: 1; }
     .list { display: flex; flex-direction: column; gap: 6px; max-height: 232px; overflow: auto; overscroll-behavior: contain; }
@@ -851,7 +889,7 @@
       .surface > .badge, .surface > .card, .surface > .panel {
         position:relative; inset:auto !important; margin:0;
       }
-      button:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+      button:focus-visible, input:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
     `;
     const root = h('div', { class: 'ui surface', 'data-theme': ui.root.dataset.theme });
     doc.head.append(style);
@@ -1225,11 +1263,30 @@
     return { start: 0, end: text.length, text, label: 'whole text', full: text };
   }
 
+  function captureInsertion(s) {
+    s.adapter.invalidate();
+    const full = s.adapter.text();
+    const [a, b] = s.adapter.selection();
+    const start = Math.max(0, Math.min(a, full.length));
+    const end = Math.max(start, Math.min(b, full.length));
+    return { start, end, text: full.slice(start, end), full };
+  }
+
+  function rememberInsertion() {
+    if (!panelState || !active) return;
+    const focused = deepActiveElement();
+    if (focused !== active.el && !active.el.contains(focused)) return;
+    panelState.writeScope = captureInsertion(active);
+  }
+
   function openPanel(initial = {}) {
     if (!active) return;
     mountHost();
     hideCard();
-    panelState = { view: 'main', scope: captureScope(active), ...initial };
+    if (panelState?.request) panelState.request.cancelled = true;
+    const scope = captureScope(active);
+    panelState = { view: 'main', mode: scope.full.trim() ? 'rewrite' : 'write',
+      scope, writeScope: captureInsertion(active), writePrompt: '', ...initial };
     if (!ui.panel) {
       ui.panel = h('div', { class: 'panel' });
       mountSurface(ui.panel, 'Claudely writing panel');
@@ -1273,18 +1330,47 @@
     return { codex: 'Codex', claude: 'Claude', opencode: 'OpenCode' }[settings.provider] || settings.provider;
   }
 
+  function switchMode(mode, focus = false) {
+    const st = panelState;
+    if (!st || st.request || st.view !== 'main') return;
+    st.mode = mode;
+    st.error = null;
+    renderPanel();
+    if (focus) ui.panel.querySelector(`#claudely-tab-${mode}`)?.focus();
+  }
+
+  function panelTabs(st) {
+    const tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Writing mode' },
+      ['write', 'rewrite', 'check'].map((mode) => h('button', {
+        class: 'tab', id: `claudely-tab-${mode}`, role: 'tab',
+        'aria-controls': 'claudely-panel-body', 'aria-selected': String(st.mode === mode),
+        tabindex: st.mode === mode ? '0' : '-1', disabled: Boolean(st.request) || st.view !== 'main',
+        onclick: () => switchMode(mode),
+      }, { write: 'Write', rewrite: 'Rewrite', check: 'Check' }[mode])),
+    );
+    tabs.addEventListener('keydown', (e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+      e.preventDefault();
+      const modes = ['write', 'rewrite', 'check'];
+      const index = modes.indexOf(st.mode);
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? 2 : (index + (e.key === 'ArrowRight' ? 1 : 2)) % 3;
+      switchMode(modes[next], true);
+    });
+    return tabs;
+  }
+
   function renderPanel() {
     const s = active;
     const st = panelState;
     if (!ui.panel || !s || !st) return;
-    const body = h('div', { class: 'body' });
+    const body = h('div', { class: 'body', id: 'claudely-panel-body', role: 'tabpanel', 'aria-labelledby': `claudely-tab-${st.mode}` });
     const header = h('div', { class: 'head' },
       h('div', { class: 'title', html: LOGO }, 'Claudely'),
       h('span', { class: 'pill' }, providerLabel()),
       h('button', { class: 'x', title: 'Settings', onclick: () => send({ type: 'openOptions' }) }, '⚙'),
       h('button', { class: 'x', title: 'Close (Esc)', onclick: closePanel }, '×'),
     );
-    ui.panel.replaceChildren(header, body);
+    ui.panel.replaceChildren(header, panelTabs(st), body);
 
     if (st.view === 'loading') {
       body.append(
@@ -1304,11 +1390,15 @@
         ),
       );
     } else {
-      st.suggestionsEl = suggestionsSection(s);
-      st.suggestionsSig = suggestionsSignature(s);
-      body.append(st.suggestionsEl, rewriteSection(st));
+      st.suggestionsEl = null;
+      if (st.mode === 'check') {
+        st.suggestionsEl = suggestionsSection(s);
+        st.suggestionsSig = suggestionsSignature(s);
+        body.append(st.suggestionsEl);
+      } else if (st.mode === 'write') body.append(writeSection(st));
+      else body.append(rewriteSection(st));
       if (st.error) body.prepend(errorBox(st.error));
-      else if (s.status === 'error') body.prepend(errorBox(s.error));
+      else if (st.mode === 'check' && s.status === 'error') body.prepend(errorBox(s.error));
     }
     positionPanel();
     st.focusInput?.focus();
@@ -1323,6 +1413,7 @@
   // change, without touching the rest of the panel (e.g. a half-typed prompt).
   function refreshSuggestions() {
     const st = panelState;
+    if (st?.placementEl?.isConnected) st.placementEl.textContent = insertionLabel(st.writeScope);
     if (!active || st?.view !== 'main' || !st.suggestionsEl?.isConnected) return;
     const sig = suggestionsSignature(active);
     if (sig === st.suggestionsSig) return;
@@ -1397,15 +1488,130 @@
       h('div', { class: 'scope' }, words ? `Applies to the ${st.scope.label} (${words} word${words === 1 ? '' : 's'}).` : 'Write something first.'),
       h('div', { class: 'chips' }, REWRITES.map((r) =>
         h('button', { class: 'chip', disabled: !words, onclick: () => runRewrite(r.id, null, r.label) }, r.label))),
-      h('div', { class: 'custom' }, input, h('button', { class: 'btn primary', onclick: go }, 'Go')),
+      h('div', { class: 'custom' }, input, h('button', { class: 'btn primary', disabled: !words, onclick: go }, 'Go')),
       h('div', { class: 'kbd', style: 'margin-top:8px' }, 'Alt+Shift+G quick-fixes · Alt+Shift+W opens this panel'),
     );
   }
 
   function backToMain() {
     if (panelState?.request) panelState.request.cancelled = true;
-    panelState = { view: 'main', scope: captureScope(active) };
+    panelState = { ...panelState, view: 'main', request: null, scope: captureScope(active) };
     renderPanel();
+  }
+
+  function insertionLabel(scope) {
+    return !scope.full ? 'Into this empty field' : scope.end > scope.start ? 'Replaces selected text' : 'Inserts at your cursor';
+  }
+
+  function writeSection(st) {
+    const busy = Boolean(st.request);
+    const input = h('textarea', { id: 'claudely-write-prompt', class: 'write-prompt',
+      placeholder: 'Describe a post, reply, email, or anything else…', readonly: busy });
+    input.value = st.writePrompt;
+    const button = h('button', { class: 'btn primary', disabled: busy ? st.request.applying : !st.writePrompt.trim(),
+      onclick: () => busy ? cancelWriting() : runWrite() }, busy ? 'Cancel writing' : 'Write in text box');
+    input.addEventListener('input', () => {
+      st.writePrompt = input.value;
+      button.disabled = !input.value.trim();
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing && e.keyCode !== 229) {
+        e.preventDefault();
+        if (!st.request) runWrite();
+      }
+    });
+    st.placementEl = h('span', { class: 'write-placement' }, insertionLabel(st.writeScope));
+    const section = h('div', {},
+      h('label', { class: 'write-label', for: 'claudely-write-prompt' }, 'What would you like to write?'), input,
+      h('p', { class: 'write-hint', role: 'status' }, busy ? `Writing with ${providerLabel()}…` : 'Describe the idea, tone, and any details to include.'),
+      h('div', { class: 'write-actions' }, st.placementEl, button),
+      h('p', { class: 'kbd', style: 'margin:10px 0 0' }, '⌘ / Ctrl + Enter to write · Enter for a new line'),
+    );
+    if (st.notice) section.append(h('div', { class: 'write-notice', role: 'status', style: 'margin-top:14px' },
+      h('span', {}, st.notice), st.undo ? h('button', { class: 'btn', onclick: undoWriting }, 'Undo') : null));
+    if (st.generatedText && st.error) section.append(h('div', { class: 'row', style: 'margin-top:10px' },
+      h('button', { class: 'btn', onclick: () => copyText(st.generatedText) }, 'Copy generated text')));
+    return section;
+  }
+
+  function cancelWriting() {
+    const st = panelState;
+    if (!st?.request || st.request.applying) return;
+    st.request.cancelled = true;
+    Object.assign(st, { request: null, notice: 'Writing canceled. Your field is unchanged.' });
+    renderPanel();
+  }
+
+  async function runWrite() {
+    const st = panelState;
+    const s = active;
+    if (!st || !s || st.request || !st.writePrompt.trim()) return;
+    const scope = { ...st.writeScope };
+    const request = { cancelled: false };
+    Object.assign(st, { request, error: null, notice: null, generatedText: null });
+    renderPanel();
+    const res = await send({ type: 'write', instruction: st.writePrompt.trim(), site: SITE, text: scope.text,
+      contextBefore: scope.full.slice(Math.max(0, scope.start - 600), scope.start),
+      contextAfter: scope.full.slice(scope.end, scope.end + 600) });
+    const valid = () => !request.cancelled && panelState === st && active === s && alive && siteEnabled();
+    if (!valid()) return;
+    if (!res?.ok || typeof res.text !== 'string' || !res.text.trim()) {
+      Object.assign(st, { request: null, error: res?.error || 'No text was generated. Try again.' });
+      renderPanel();
+      return;
+    }
+    st.generatedText = res.text;
+    request.applying = true;
+    renderPanel();
+    const singleLine = s.adapter instanceof PlainAdapter && s.adapter.isInput;
+    let inserted = singleLine ? res.text.replace(/[\r\n]+/g, ' ') : res.text;
+    if (scope.start === scope.end) {
+      const separator = singleLine ? ' ' : '\n\n';
+      if (scope.start && !/\s$/.test(scope.full.slice(0, scope.start)) && !/^\s/.test(inserted)) inserted = separator + inserted;
+      if (scope.end < scope.full.length && !/^\s/.test(scope.full.slice(scope.end)) && !/\s$/.test(inserted)) inserted += separator;
+    }
+    const ok = await s.replaceSnapshot(scope.full, scope.start, scope.end, inserted, valid);
+    if (!valid()) return;
+    s.adapter.invalidate();
+    const after = s.adapter.text();
+    st.request = null;
+    if (!ok) {
+      st.error = 'Couldn’t insert the text. Your field may have changed. Copy the generated text or try again.';
+    } else {
+      const insertedEnd = after.length - (scope.full.length - scope.end);
+      st.undo = { session: s, before: scope.full, after, start: scope.start, end: insertedEnd, text: scope.text };
+      st.notice = 'Written in your text box.';
+      st.scope = captureScope(s);
+    }
+    st.writeScope = captureInsertion(s);
+    renderPanel();
+    scheduleRender();
+  }
+
+  async function undoWriting() {
+    const st = panelState;
+    const undo = st?.undo;
+    if (!undo || st.request || active !== undo.session) return;
+    const s = undo.session;
+    const request = { cancelled: false };
+    st.request = request;
+    const ok = await s.replaceSnapshot(undo.after, undo.start, undo.end, undo.text,
+      () => panelState === st && active === s && !request.cancelled && alive && siteEnabled());
+    if (panelState !== st || request.cancelled) return;
+    Object.assign(st, { request: null, undo: null, notice: ok ? 'Insertion undone. Your previous text is restored.' : null,
+      error: ok ? null : 'Your draft has changed since insertion. Undo was skipped to preserve your edits.',
+      writeScope: captureInsertion(s), scope: captureScope(s) });
+    renderPanel();
+    scheduleRender();
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Copied');
+    } catch {
+      showToast('Copy failed');
+    }
   }
 
   async function runRewrite(action, instruction, title) {
@@ -1455,12 +1661,7 @@
   }
 
   async function copyRewrite() {
-    try {
-      await navigator.clipboard.writeText(panelState.result);
-      showToast('Copied');
-    } catch {
-      showToast('Copy failed');
-    }
+    await copyText(panelState.result);
   }
 
   async function acceptAll() {
@@ -1576,6 +1777,7 @@
   }, { capture: true, signal });
 
   document.addEventListener('focusout', () => {
+    rememberInsertion();
     clearTimeout(deactivateTimer);
     deactivateTimer = setTimeout(() => {
       if (!active || ui.panel) return;
@@ -1584,6 +1786,9 @@
       deactivate();
     }, 200);
   }, { capture: true, signal });
+
+  document.addEventListener('selectionchange', rememberInsertion, { signal });
+  document.addEventListener('select', rememberInsertion, { capture: true, signal });
 
   document.addEventListener('input', (e) => {
     if (!active) return;
@@ -1652,7 +1857,9 @@
         rects: s.adapter.rectsFor(s.issues).map((r) => r.rects.length),
         panel: Boolean(ui.panel),
         panelView: panelState?.view,
+        panelMode: panelState?.mode,
         panelError: panelState?.error,
+        writeNotice: panelState?.notice,
         result: panelState?.result,
       };
     },
