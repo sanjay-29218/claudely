@@ -9,7 +9,7 @@
   },
   "scripts": {
     "check": "node tools/check.mjs",
-    "test": "node --test tools/provider-tests.mjs",
+    "test": "node --test tools/provider-tests.mjs tools/writing-tests.mjs",
     "test:browser": "node tools/keyboard-tests.mjs"
   },
   "repository": {

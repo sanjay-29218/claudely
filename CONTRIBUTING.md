@@ -36,6 +36,10 @@ the actual content script with fixture model responses, and make no provider
 requests. They cover host-page capture listeners, normal typing and selection,
 IME confirmation, keyboard submission and dismissal, suggestion cards, and
 focus return at desktop and narrow widths, including a strict page CSP.
+They also cover Write mode in textareas, inputs, and rich editors: empty-field
+generation, cursor and selection insertion, undo, stale drafts, cancellation,
+and provider failures. `npm test` checks Write prompt construction and model
+routing for all three providers without making model requests.
 
 ## Changes
 

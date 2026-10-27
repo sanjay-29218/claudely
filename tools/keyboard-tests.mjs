@@ -83,7 +83,8 @@ try {
     async function key(key, options = {}) {
       const base = { key, code: key.length === 1 ? `Key${key.toUpperCase()}` : key,
         windowsVirtualKeyCode: key.length === 1 ? key.toUpperCase().charCodeAt(0) : { Enter: 13, Escape: 27, Backspace: 8, Tab: 9 }[key], ...options };
-      await client.call('Input.dispatchKeyEvent', { type: 'keyDown', ...base, ...(key.length === 1 && !options.modifiers ? { text: key } : {}) });
+      await client.call('Input.dispatchKeyEvent', { type: 'keyDown', ...base,
+        ...(!options.modifiers && (key.length === 1 || key === 'Enter') ? { text: key === 'Enter' ? '\r' : key } : {}) });
       await client.call('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
     }
     async function point(node) {
@@ -130,10 +131,13 @@ try {
       const { executionContextId } = await client.call('Page.createIsolatedWorld', { frameId: frameTree.frame.id, worldName: 'Claudely keyboard tests' });
       await evaluate(`${defaults}
         globalThis.requests = [];
+        globalThis.writeResponse = {ok:true,text:'A fresh draft.'};
         globalThis.chrome = {
           storage: { sync: { get: async defaults => ({...defaults, autoCheck:false}) }, local: {get:async()=>({dictionary:[]})}, onChanged:{addListener(){}} },
           runtime: { id:'keyboard-tests', onMessage:{addListener(fn){ globalThis.command=fn; }},
-            async sendMessage(msg) { requests.push(msg); return msg.type==='check'
+            async sendMessage(msg) { requests.push(msg);
+              if(msg.type==='write') return new Promise(resolve=>{globalThis.finishWrite=()=>resolve(writeResponse); if(!globalThis.holdWrite) setTimeout(finishWrite,20)});
+              return msg.type==='check'
               ? {ok:true,results:msg.paragraphs.map(()=>[{original:'teh',replacement:'the',before:'',category:'spelling',message:'Spelling'}])}
               : {ok:true,text:'The writing example.'}; }
           }
@@ -206,6 +210,140 @@ try {
       await key('j');
       assert.ok((await evaluate('hostEvents')).length > 0, 'Host shortcuts must resume outside Claudely');
       console.log(`PASS ${width}px: capture/bubble isolation, native typing and mouse clicks, selection, IME, clipboard, Enter, Escape, cards, badge, focus return, strict CSP.`);
+
+      // Write uses the real adapters, including empty rich editors like X.
+      await evaluate(`scrollTo(0,0);document.body.insertAdjacentHTML('beforeend',
+        '<div id="rich" contenteditable="true" style="width:280px;min-height:120px;white-space:pre-wrap"></div><input id="single" type="text">')`);
+      async function buttonText(text) {
+        const node = await find((n) => n.nodeName === 'BUTTON' && (n.children || []).some(c => c.nodeType === 3 && c.nodeValue === text));
+        await click(node);
+      }
+      async function openWriting(id, text, start = text.length, end = start) {
+        await evaluate(`(()=>{const e=document.getElementById(${JSON.stringify(id)});e.focus();
+          if(e.isContentEditable){e.textContent=${JSON.stringify(text)};const r=document.createRange();r.setStart(e.firstChild||e,${start});r.setEnd(e.firstChild||e,${end});getSelection().removeAllRanges();getSelection().addRange(r)}
+          else {e.value=${JSON.stringify(text)};e.setSelectionRange(${start},${end})}
+          e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+        await evaluate('command({type:"command",command:"open-panel",targeted:true})', executionContextId);
+        await waitFor('__claudelyDebug.state().panel', executionContextId);
+        await assertVisible('panel');
+        const tab = await find((n, attrs) => attrs.id === 'claudely-tab-write');
+        await click(tab);
+      }
+      async function describe() {
+        const prompt = await find((n, attrs) => attrs.id === 'claudely-write-prompt');
+        await click(prompt);
+        await client.call('Input.insertText', { text: 'Write a short friendly post.' });
+        return prompt;
+      }
+      async function closeWriting() {
+        await click(await find((n, attrs) => attrs.title === 'Close (Esc)'));
+      }
+      async function fieldText(id) {
+        return evaluate(`(()=>{const e=document.getElementById(${JSON.stringify(id)});return e.isContentEditable?e.innerText:e.value})()`);
+      }
+      for (const id of ['editor', 'rich', 'single']) {
+        await openWriting(id, '');
+        assert.equal(await onNode(await find((n, a) => a.id === 'claudely-tab-write'), 'function(){return this.getAttribute("aria-selected")}'), 'true');
+        const prompt = await describe();
+        await evaluate('hostEvents.length=0');
+        await key('j'); await key('k');
+        await key('Enter');
+        assert.ok((await onNode(prompt, 'function(){return this.value}')).endsWith('jk\n'), 'Enter adds a prompt newline');
+        assert.deepEqual(await evaluate('hostEvents'), [], 'Write prompt keys must remain isolated');
+        const count = await evaluate('requests.filter(r=>r.type==="write").length', executionContextId);
+        await onNode(prompt, 'function(){this.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",ctrlKey:true,isComposing:true,bubbles:true}))}');
+        assert.equal(await evaluate('requests.filter(r=>r.type==="write").length', executionContextId), count, 'IME must not submit Write');
+        if (id === 'editor') {
+          if (process.env.SCREENSHOT_DIR) await writeFile(path.join(process.env.SCREENSHOT_DIR, `claudely-write-${width}.png`), Buffer.from((await client.call('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
+          await key('Enter', { modifiers: 2 });
+        } else await buttonText('Write in text box');
+        await waitFor('__claudelyDebug.state().writeNotice === "Written in your text box."', executionContextId);
+        assert.equal(await fieldText(id), 'A fresh draft.', `${id}: insert into empty field`);
+        assert.ok((await evaluate('hostEvents')).every(e => ['input','beforeinput'].includes(e.type)), 'Insertion notifies the editor without leaking prompt shortcuts');
+        await buttonText('Undo');
+        await waitFor('__claudelyDebug.state().writeNotice?.startsWith("Insertion undone")', executionContextId);
+        assert.equal((await fieldText(id)).trim(), '', `${id}: undo restores empty field`);
+        await closeWriting();
+
+        await openWriting(id, 'Hello world', 6, 6);
+        await describe(); await buttonText('Write in text box');
+        await waitFor('__claudelyDebug.state().writeNotice === "Written in your text box."', executionContextId);
+        assert.equal(await evaluate('__claudelyDebug.state().text', executionContextId),
+          id === 'single' ? 'Hello A fresh draft. world' : 'Hello A fresh draft.\n\nworld', `${id}: insert at cursor without gluing text together`);
+        await buttonText('Undo');
+        await waitFor('__claudelyDebug.state().writeNotice?.startsWith("Insertion undone")', executionContextId);
+        assert.equal(await fieldText(id), 'Hello world');
+        await closeWriting();
+
+        await openWriting(id, 'Hello world', 6, 11);
+        await describe(); await buttonText('Write in text box');
+        await waitFor('__claudelyDebug.state().writeNotice === "Written in your text box."', executionContextId);
+        assert.equal(await fieldText(id), 'Hello A fresh draft.', `${id}: replace only selected text`);
+        await buttonText('Undo');
+        await waitFor('__claudelyDebug.state().writeNotice?.startsWith("Insertion undone")', executionContextId);
+        assert.equal(await fieldText(id), 'Hello world');
+        await closeWriting();
+      }
+      // Stale responses, canceled runs, errors and late undo must preserve edits.
+      await openWriting('editor', ''); await describe();
+      await evaluate('holdWrite=true', executionContextId);
+      await buttonText('Write in text box');
+      await evaluate('document.getElementById("editor").value="My newer draft"');
+      await evaluate('finishWrite()', executionContextId);
+      await waitFor('!!__claudelyDebug.state().panelError', executionContextId);
+      assert.equal(await fieldText('editor'), 'My newer draft');
+      await closeWriting();
+
+      await openWriting('editor', ''); await describe();
+      await buttonText('Write in text box'); await buttonText('Cancel writing');
+      await evaluate('finishWrite();holdWrite=false', executionContextId); await sleep(30);
+      assert.equal(await fieldText('editor'), '', 'Canceled response cannot insert');
+      assert.ok((await evaluate('__claudelyDebug.state().writeNotice', executionContextId)).includes('canceled'));
+      await closeWriting();
+
+      await openWriting('editor', ''); await describe();
+      await evaluate('writeResponse={ok:false,error:"Provider unavailable"}', executionContextId);
+      await buttonText('Write in text box');
+      await waitFor('__claudelyDebug.state().panelError === "Provider unavailable"', executionContextId);
+      assert.equal(await fieldText('editor'), '');
+      assert.equal(await onNode(await find((n, a) => a.id === 'claudely-write-prompt'), 'function(){return this.value}'), 'Write a short friendly post.', 'Errors preserve the prompt');
+      await evaluate('writeResponse={ok:true,text:"A fresh draft."}', executionContextId);
+      await buttonText('Write in text box');
+      await waitFor('__claudelyDebug.state().writeNotice === "Written in your text box."', executionContextId);
+      await evaluate('document.getElementById("editor").value+=" My edit"');
+      await buttonText('Undo');
+      await waitFor('!!__claudelyDebug.state().panelError', executionContextId);
+      assert.equal(await fieldText('editor'), 'A fresh draft. My edit', 'Undo cannot overwrite subsequent edits');
+      await closeWriting();
+
+      await openWriting('rich', '');
+      await evaluate(`(()=>{const e=document.getElementById('rich');e.innerHTML='<p><br></p>';e.focus();const r=document.createRange();r.selectNodeContents(e.firstChild);r.collapse(true);getSelection().removeAllRanges();getSelection().addRange(r);e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+      await evaluate('writeResponse={ok:true,text:"First line.\\nSecond line."}', executionContextId);
+      await describe(); await buttonText('Write in text box');
+      await waitFor('__claudelyDebug.state().writeNotice === "Written in your text box."', executionContextId);
+      // Native paragraph elements can expose double breaks through innerText;
+      // use the adapter's canonical text, which also governs exact undo offsets.
+      assert.equal(await evaluate('__claudelyDebug.state().text', executionContextId), 'First line.\nSecond line.', 'Insert multiple lines into a rich editor with an empty paragraph');
+      await buttonText('Undo');
+      await waitFor('__claudelyDebug.state().writeNotice?.startsWith("Insertion undone")', executionContextId);
+      assert.equal((await fieldText('rich')).trim(), '');
+      await closeWriting();
+
+      await openWriting('editor', ''); await describe();
+      await evaluate('holdWrite=true', executionContextId);
+      await buttonText('Write in text box'); await closeWriting();
+      await evaluate('finishWrite();holdWrite=false', executionContextId); await sleep(30);
+      assert.equal(await fieldText('editor'), '', 'Closing the panel cancels a late insertion');
+
+      await evaluate(`document.getElementById('pageButton').focus();document.body.style.background='#000';document.getElementById('editor').style.cssText='background:#000;color:#eee'`);
+      await openWriting('editor', ''); await describe();
+      if (process.env.SCREENSHOT_DIR) await writeFile(path.join(process.env.SCREENSHOT_DIR, `claudely-write-dark-${width}.png`), Buffer.from((await client.call('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
+      await evaluate('writeResponse={ok:true,text:"A fresh draft."}', executionContextId);
+      await buttonText('Write in text box');
+      await waitFor('__claudelyDebug.state().writeNotice === "Written in your text box."', executionContextId);
+      if (process.env.SCREENSHOT_DIR) await writeFile(path.join(process.env.SCREENSHOT_DIR, `claudely-write-success-${width}.png`), Buffer.from((await client.call('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
+      await closeWriting();
+      console.log(`PASS ${width}px: Write in textarea, rich editor and input; cursor/selection insertion, undo, IME, keyboard isolation, stale drafts, cancellation, and provider errors.`);
     } finally {
       client.close();
       await browser.call('Target.closeTarget', { targetId });
